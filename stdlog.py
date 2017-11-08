@@ -45,6 +45,7 @@ import jsonlogging
 
 PLAY = ' [playbook=%(playbook)s play=%(play)s task=%(task)s] (%(process)d):%(funcName)s:%(lineno)d - %(message)s'
 PLAY_DETAILS = ' play_uuid=%(play_uuid)s play_hosts=%(play_hosts)s'
+TASK_DETAILS = ' task_uuid=%s(task_uuid)s task_role=%(task_role)s'
 ROLES = ' play_roles=%(play_roles)s'
 PLAY_TAGS = ' play_tags=%(play_tags)s task_tags=%(task_tags)s'
 ANSIBLE_VERSION = ' ansible_version="%(ansible_version)s"'
@@ -57,7 +58,7 @@ BECOME = ' play_become=%(play_become)s play_become_user=%(play_become_user)s' + 
     ' play_become_method=%(play_become_method)s'
 
 CONTEXT_DEBUG_LOG_FORMAT = "%(asctime)s [%(name)s %(levelname)s %(hostname)s]" + PLAY
-EVERYTHING = CONTEXT_DEBUG_LOG_FORMAT + PLAY_DETAILS + PLAY_TAGS + ROLES + BECOME + ANSIBLE_VERSION + PYTHON_VERSION + CLI + USER
+EVERYTHING = CONTEXT_DEBUG_LOG_FORMAT + PLAY_DETAILS + PLAY_TAGS + ROLES + TASK_DETAILS + BECOME + ANSIBLE_VERSION + PYTHON_VERSION + CLI + USER
 DEBUG_LOG_FORMAT = "%(asctime)s [%(name)s %(levelname)s %(hostname)s %(playbook)s] pid=%(process)d %(funcName)s:%(lineno)d - %(message)s"
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(process)d @%(filename)s:%(lineno)d - %(message)s"
 MIN_LOG_FORMAT = "%(asctime)s %(funcName)s:%(lineno)d - %(message)s"
@@ -154,6 +155,7 @@ class PlaybookContextLoggingFilter(object):
         record.task_tags = []
         record.hostname = getattr(record, 'hostname', '')
         record.task_log = getattr(record, 'task_log', '')
+        record.task_role = {}
         record.cb = getattr(record, 'cb', '')
 
         if self.playbook_context.playbook:
@@ -169,6 +171,7 @@ class PlaybookContextLoggingFilter(object):
             record.play_become_method = self.playbook_context.play.become_method
             record.play_become_user = self.playbook_context.play.become_user
             record.play_hosts = self.playbook_context.play.hosts
+
             # workaround for Roles not being json serializable
             record.play_roles = [{'name': x._role_name, 'path': x._role_path} for x in self.playbook_context.play.roles]
 
@@ -178,6 +181,10 @@ class PlaybookContextLoggingFilter(object):
         if self.playbook_context.task:
             record.task = sluggify(self.playbook_context.task.get_name())
             record.task_tags = self.playbook_context.task.tags
+
+            if self.playbook_context.task._role:
+                record.task_role = {'name': self.playbook_context.task._role._role_name,
+                                    'path': self.playbook_context.task._role._role_path}
 
         if self.playbook_context.task_uuid:
             record.task_uuid = self.playbook_context.task_uuid
