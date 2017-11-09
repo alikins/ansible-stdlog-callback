@@ -107,8 +107,8 @@ DOCUMENTATION = '''
         ini:
           - section: callback_stdlog
             key: stdout_formatter_format
-        default: "%(asctime)s [%(levelname)s] %(process)d @%(filename)s:%(lineno)d - %(message)s"
 '''
+#        default: "%(asctime)s [%(levelname)s] %(process)d @%(filename)s:%(lineno)d - %(message)s"
 
 import getpass
 import json
@@ -140,7 +140,7 @@ log = logging.getLogger(BASE_LOGGER_NAME)
 
 PLAY = ' [playbook=%(playbook)s play=%(play)s task=%(task)s] (%(process)d):%(funcName)s:%(lineno)d - %(message)s'
 PLAY_DETAILS = ' play_uuid=%(play_uuid)s play_hosts=%(play_hosts)s'
-TASK_DETAILS = ' task_uuid=%s(task_uuid)s task_role=%(task_role)s'
+TASK_DETAILS = ' task_uuid=%(task_uuid)s task_role=%(task_role)s'
 ROLES = ' play_roles=%(play_roles)s'
 PLAY_TAGS = ' play_tags=%(play_tags)s task_tags=%(task_tags)s'
 ANSIBLE_VERSION = ' ansible_version="%(ansible_version)s"'
@@ -497,7 +497,7 @@ class CallbackModule(CallbackBase):
         super(CallbackModule, self).set_options(options)
 
         self.stdout_formatter = self._plugin_options['stdout_formatter'] or self.default_stdout_formatter
-        self.stdout_formatter_format = self._plugin_options['stdout_formatter_format'] or self.default_log_format
+        self.stdout_formatter_format = self._plugin_options['stdout_formatter_format'] or self.default_stdout_formatter_format
 
         self.file_formatter = self._plugin_options['file_formatter'] or self.default_file_formatter
         self.file_formatter_format = self._plugin_options['file_formatter_format'] or self.default_file_formatter_format
