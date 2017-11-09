@@ -17,6 +17,99 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
+# TODO: it would be useful to support logging.dictConfig as well, but
+# config doesn't have a dict type. We could add a 'dict_config_yaml_string'
+# that would be a string of yaml/json we would deserialize and send to logging.dictConfig
+# but yaml inside yaml is kind of weird
+DOCUMENTATION = '''
+    callback: stdlog
+    type: notification
+    short_description: Sends events to python stdlib logging
+    description:
+      - This callback plugin will use python stdlib logging, create a logger and handlers, and send detailed events to the logger
+      - In 2.4 and above you can just put it in the main Ansible configuration file.
+    version_added: "2.5"
+    requirements:
+      - whitelisting in configuration
+      - jsonlogging (python library), if you want to use json logging
+      - color_debug (python library), if you want colorful stdout logging
+    options:
+      foo:
+        description: which foo
+        env:
+          - name: STDLOG_FOO
+        default: foo_default
+        ini:
+          - section: callback_stdlog
+            key: foo
+      blip:
+        description: a collective of blip
+        env:
+            - name: STDLOG_BLIP
+        default: platypus
+        ini:
+          - section: callback_stdlog
+            key: blip
+      logger_name:
+        description: The name of the base logger to use
+        env:
+            - name: STDLOG_LOGGER_NAME
+        default: ansible_stdlog
+        ini:
+          - section: callback_stdlog
+            key: logger_name
+      logger_level:
+        description: The log level of the base logger
+        env:
+          - name: STDLOG_LOGGER_LEVEL
+        ini:
+          - section: callback_stdlog
+            key: logger_level
+        default: DEBUG
+      stdout_formatter:
+        description:
+          - which formatter to use for stdout
+        env:
+          - name: STDLOG_STDOUT_FORMATTER
+        default: SortedJSONFormatter
+        ini:
+          - section: callback_stdlog
+            key: stdout_formatter
+      file_formatter:
+        description: formatter to use for log file
+        default: SortedJSONFormatter
+        env:
+          - name: STDLOG_FILE_FORMATTER
+        ini:
+          - section: callback_stdlog
+            key: file_formatter
+      file_formatter_format:
+        description: format string to pass to file_formatter
+        env:
+          - name: STDLOG_FILE_FORMATTER
+        ini:
+          - section: callback_stdlog
+            key: file_formatter_format
+        default: "%(asctime)s [%(levelname)s] %(process)d @%(filename)s:%(lineno)d - %(message)s"
+      file_formatter_file:
+        description: the file name the file_formatter should log to
+        env:
+          - name: STDLOG_FILE_FORMATTER_FILE
+        ini:
+          - section: callback_stdlog
+            key: file_formatter_file
+        type: path
+        default: ~/.ansible_stdlog.log
+      stdout_formatter_format:
+        description: format string to pass to stdout_formatter
+        env:
+          - name: STDLOG_STDOUT_FORMATTER
+        ini:
+          - section: callback_stdlog
+            key: stdout_formatter_format
+        default: "%(asctime)s [%(levelname)s] %(process)d @%(filename)s:%(lineno)d - %(message)s"
+'''
+
 import getpass
 import json
 import logging
@@ -35,13 +128,15 @@ from ansible.release import __version__ as ansible_version
 
 # import logging_tree
 import jsonlogging
+import color_debug
 
 # NOTE: in Ansible 1.2 or later general logging is available without
 # this plugin, just set ANSIBLE_LOG_PATH as an environment variable
 # or log_path in the DEFAULTS section of your ansible configuration
 # file.  This callback is an example of per hosts logging for those
 # that want it.
-
+BASE_LOGGER_NAME = 'ansible_stdlog'
+log = logging.getLogger(BASE_LOGGER_NAME)
 
 PLAY = ' [playbook=%(playbook)s play=%(play)s task=%(task)s] (%(process)d):%(funcName)s:%(lineno)d - %(message)s'
 PLAY_DETAILS = ' play_uuid=%(play_uuid)s play_hosts=%(play_hosts)s'
@@ -307,59 +402,113 @@ class CallbackModule(CallbackBase):
     # CALLBACK_NEEDS_WHITELIST = True
     CALLBACK_NEEDS_WHITELIST = False
 
-    log_level = logging.DEBUG
-    log_name = 'ansible_stdlog'
-    log_format = EVERYTHING
+    default_logger_level = logging.DEBUG
+    default_logger_name = 'ansible_stdlog'
+    default_stdout_formatter = "ColorFormatter"
+    default_stdout_formatter_format = EVERYTHING
+    default_file_formatter = "SortedJSONFormatter"
+    default_file_formatter_format = EVERYTHING
+    default_file_formatter_file = "~/.ansible_stdlog.log"
+
     # log_format = CONTEXT_DEBUG_LOG_FORMAT
     # log_format = LOG_FORMAT
     # log_format = MIN_LOG_FORMAT
     # log_format = DEBUG_LOG_FORMAT
 
-    def __init__(self):
-        super(CallbackModule, self).__init__()
+    def __init__(self, options=None):
+        super(CallbackModule, self).__init__(options=options)
 
         # TODO: replace with a stack
         self.host = None
-
         self.context = PlaybookContext()
 
         # Note.. reference to the class to be used as a callable not an instance
         self.rr = TaskResultRepr
-        self.formatter = logging.Formatter(fmt=self.log_format)
+
+        # FIXME: change task_queue_manager to build options first and pass to init
+        # FIXME: if we are
+
+    def _choose_stdout_formatter(self, formatter_name):
+        # FIXME: how much of logging.dictConfig is approriate to re-invent?
+        if formatter_name == 'ColorFormatter':
+            # use the calculated color of log_record_attr as the color for record_attr1 and record_attr2 as well.
+            # The inner list is more or less a group of record attrs that should have the same color, and the
+            # tuple[0] item is where they get the color from.
+            # [(log_record_attr, [record_attr1, record_attr2])]
+            color_groups = [('funcName', ['funcName', 'lineno']),
+                            ('thread', ['thread', 'threadName']),
+                            ('process', ['processName'])]
+            color_formatter = color_debug.ColorFormatter(fmt=self.stdout_formatter_format,
+                                                         default_color_by_attr='name',
+                                                         color_groups=color_groups)
+            return color_formatter
+
+        # default
+        return SortedJSONFormatter(indent=4)
+
+    def _choose_file_formatter(self, formatter_name):
+        return SortedJSONFormatter(indent=4)
+
+    # This is second half of init, to be called after setup_options(). We don't know
+    # the config option values until after init, so we have to init, the on/after set_options
+    # we get config options and apply them.
+    def initialize(self):
 
         self.stream_handler = StdlogStreamHandler(playbook_context=self.context)
+        stream_formatter = self._choose_stdout_formatter(self.stdout_formatter)
+        self.stream_handler.setFormatter(stream_formatter)
 
-        # use the calculated color of log_record_attr as the color for record_attr1 and record_attr2 as well.
-        # The inner list is more or less a group of record attrs that should have the same color, and the
-        # tuple[0] item is where they get the color from.
-        # [(log_record_attr, [record_attr1, record_attr2])]
-        # color_groups = [('funcName', ['funcName', 'lineno']),
-        #                ('thread', ['thread', 'threadName']),
-        #                ('process', ['processName'])]
-        # color_formatter = color_debug.ColorFormatter(fmt=self.log_format,
-        #                                             default_color_by_attr='name',
-        #                                             color_groups=color_groups)
-        # self.stream_handler.setFormatter(color_formatter)
-
-        # self.stream_handler.setFormatter(self.formatter)
-        json_formatter = SortedJSONFormatter(indent=4)
-        self.stream_handler.setFormatter(json_formatter)
-
-        self.file_handler = StdlogFileHandler('/tmp/ansible_stdlog.log',
+        self.file_handler = StdlogFileHandler(self.file_formatter_file,
                                               playbook_context=self.context)
-        self.file_handler.setFormatter(self.formatter)
+        file_formatter = self._choose_file_formatter(self.file_formatter)
+        self.file_handler.setFormatter(file_formatter)
 
-        self.logger = logging.getLogger(self.log_name)
-        print('self.logger.handlers: %s' % self.logger.handlers)
+        self.logger = logging.getLogger(self.logger_name)
         if not any([isinstance(handler, (StdlogFileHandler, StdlogStreamHandler)) for handler in self.logger.handlers]):
-            print('adding handlers')
             self.logger.addHandler(self.stream_handler)
-            # self.logger.addHandler(self.file_handler)
+            self.logger.addHandler(self.file_handler)
 
-        self.logger.setLevel(self.log_level)
+        self.logger.setLevel(self.logger_level)
 
         import logging_tree
         logging_tree.printout()
+
+    def apply_config(self):
+        # log_level
+        # log_format
+        # base logger_name
+        # base logger level
+        # handlers
+        #   FileHandlers
+        #       filename
+        #       which formatter
+        #       level
+        #   StreamHandlers
+        #      stdout/stdout
+        #      which formatter
+        #      level
+        #   formatters
+        #     formatter options
+        #     ColorFormatter (color_groups, default_attr)
+        #     JSONFormatter (sorted, indent, encoder)
+        pass
+
+    def set_options(self, options):
+        super(CallbackModule, self).set_options(options)
+
+        self.stdout_formatter = self._plugin_options['stdout_formatter'] or self.default_stdout_formatter
+        self.stdout_formatter_format = self._plugin_options['stdout_formatter_format'] or self.default_log_format
+
+        self.file_formatter = self._plugin_options['file_formatter'] or self.default_file_formatter
+        self.file_formatter_format = self._plugin_options['file_formatter_format'] or self.default_file_formatter_format
+        self.file_formatter_file = self._plugin_options['file_formatter_file'] or self.default_file_formatter_file
+
+        self.logger_level = self._plugin_options['logger_level'] or self.default_logger_level
+
+        self.logger_name = self._plugin_options['logger_name'] or self.default_logger_name
+
+        # FIXME: would be nice to do this in init
+        self.initialize()
 
     # Note: it would be useful to have a 'always called'
     # callback, and a 'only called if not handled' callback
