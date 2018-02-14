@@ -493,8 +493,8 @@ class CallbackModule(CallbackBase):
         #     JSONFormatter (sorted, indent, encoder)
         pass
 
-    def set_options(self, options):
-        super(CallbackModule, self).set_options(options)
+    def set_options(self, task_keys=None, var_options=None, direct=None):
+        super(CallbackModule, self).set_options(task_keys, var_options, direct)
 
         self.stdout_formatter = self._plugin_options['stdout_formatter'] or self.default_stdout_formatter
         self.stdout_formatter_format = self._plugin_options['stdout_formatter_format'] or self.default_stdout_formatter_format
@@ -527,7 +527,7 @@ class CallbackModule(CallbackBase):
     # To enable logging any hits to 'on_any' callbacks, uncomment here.
     # WARNING: we don't know the name the callback method was actually called as and
     # the args/kwargs could be anything
-    # v2_on_any = _handle_v2_on_any
+    v2_on_any = _handle_v2_on_any
 
     # TODO: remove, not used at,
     def context_logger(self, host=None):
