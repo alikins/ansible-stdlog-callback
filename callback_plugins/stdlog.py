@@ -399,8 +399,8 @@ class CallbackModule(CallbackBase):
     CALLBACK_TYPE = 'notification'
     # CALLBACK_TYPE = "aggregate"
     CALLBACK_NAME = 'stdlog'
-    # CALLBACK_NEEDS_WHITELIST = True
-    CALLBACK_NEEDS_WHITELIST = False
+    CALLBACK_NEEDS_WHITELIST = True
+    #CALLBACK_NEEDS_WHITELIST = False
 
     default_logger_level = logging.DEBUG
     default_logger_name = 'ansible_stdlog'
@@ -455,7 +455,7 @@ class CallbackModule(CallbackBase):
     def initialize(self):
 
         self.stream_handler = StdlogStreamHandler(playbook_context=self.context)
-        stream_formatter = self._choose_stdout_formatter(self.stdout_formatter)
+        stream_formatter = self._choose_stdout_formatter(self.stream_formatter)
         self.stream_handler.setFormatter(stream_formatter)
 
         self.file_handler = StdlogFileHandler(self.file_formatter_file,
